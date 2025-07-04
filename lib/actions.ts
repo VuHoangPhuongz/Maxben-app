@@ -2,86 +2,90 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, deleteDoc, addDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, addDoc, updateDoc, getDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
-// Định nghĩa schema validation với Zod
-const ProductSchema = z.object({
-  name: z.string().min(3, { message: 'Tên sản phẩm phải có ít nhất 3 ký tự.' }),
-  unit: z.string().min(1, { message: 'Đơn vị không được để trống.' }),
-  stock: z.coerce.number().int().nonnegative({ message: 'Tồn kho phải là số không âm.' }),
-  price_level_1: z.coerce.number().positive({ message: 'Giá cấp 1 phải là số dương.' }),
-  price_level_2: z.coerce.number().positive({ message: 'Giá cấp 2 phải là số dương.' }),
-});
+// ... (Các schema và actions của Product đã có ở trên)
 
-export type Product = z.infer<typeof ProductSchema> & { id: string };
+// ===============================================
+// ORDER ACTIONS
+// ===============================================
 
-// Hành động lấy sản phẩm theo ID
-export async function getProductById(productId: string): Promise<Product | null> {
+// Định nghĩa các trạng thái đơn hàng có thể có
+export const ORDER_STATUSES = ['pending', 'processing', 'shipped', 'completed', 'cancelled'] as const;
+
+// Định nghĩa kiểu dữ liệu cho một sản phẩm trong đơn hàng
+interface OrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  price: number;
+}
+
+// Định nghĩa kiểu dữ liệu cho một đơn hàng
+export interface Order {
+  id: string;
+  userId: string;
+  userName: string; // Tên người đặt hàng để hiển thị
+  items: OrderItem[];
+  totalAmount: number;
+  status: typeof ORDER_STATUSES[number];
+  createdAt: {
+    seconds: number;
+    nanoseconds: number;
+  };
+  appliedPromotion: string | null; // Đảm bảo là null nếu không có
+}
+
+// Hành động lấy tất cả đơn hàng, sắp xếp theo ngày tạo mới nhất
+export async function getOrders(): Promise<Order[]> {
   try {
-    const docRef = doc(db, 'products', productId);
-    const docSnap = await getDoc(docRef);
-
-    if (!docSnap.exists()) {
-      return null;
-    }
-    return { id: docSnap.id, ...docSnap.data() } as Product;
+    const ordersCol = collection(db, 'orders');
+    // Sắp xếp theo 'createdAt' giảm dần để đơn mới nhất lên đầu
+    const q = query(ordersCol, orderBy('createdAt', 'desc'));
+    const orderSnapshot = await getDocs(q);
+    const orderList = orderSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...(doc.data() as Omit<Order, 'id'>),
+    }));
+    return orderList;
   } catch (error) {
-    console.error("Error fetching product by ID: ", error);
-    return null;
+    console.error("Error fetching orders: ", error);
+    return [];
   }
 }
 
-// Hành động tạo sản phẩm
-export async function createProduct(formData: FormData) {
-  const validatedFields = ProductSchema.safeParse(Object.fromEntries(formData.entries()));
-
-  if (!validatedFields.success) {
-    return {
-      errors: validatedFields.error.flatten().fieldErrors,
-    };
+// Hành động cập nhật trạng thái đơn hàng
+export async function updateOrderStatus(orderId: string, status: typeof ORDER_STATUSES[number]) {
+  if (!orderId || !status) {
+    return { error: 'Order ID and status are required.' };
+  }
+  if (!ORDER_STATUSES.includes(status)) {
+    return { error: 'Invalid status value.' };
   }
 
   try {
-    await addDoc(collection(db, 'products'), {
-      ...validatedFields.data,
-      createdAt: serverTimestamp(),
-    });
-    revalidatePath('/(dashboard)/products');
-    return { success: true };
+    const docRef = doc(db, 'orders', orderId);
+    await updateDoc(docRef, { status });
+    revalidatePath('/(dashboard)/orders'); // Cập nhật lại trang danh sách đơn hàng
+    return { success: 'Order status updated successfully.' };
   } catch (error) {
-    console.error("Error creating product: ", error);
-    return { error: 'Không thể tạo sản phẩm.' };
+    console.error("Error updating order status: ", error);
+    return { error: 'Failed to update order status.' };
   }
 }
 
-// Hành động cập nhật sản phẩm
-export async function updateProduct(productId: string, formData: FormData) {
-  const validatedFields = ProductSchema.safeParse(Object.fromEntries(formData.entries()));
-
-  if (!validatedFields.success) {
-    return {
-      errors: validatedFields.error.flatten().fieldErrors,
-    };
-  }
-
-  try {
-    const docRef = doc(db, 'products', productId);
-    await updateDoc(docRef, {
-      ...validatedFields.data,
-      updatedAt: serverTimestamp(),
-    });
-    revalidatePath('/(dashboard)/products');
-    revalidatePath(`/(dashboard)/products/edit/${productId}`);
-    return { success: true };
-  } catch (error) {
-    console.error("Error updating product: ", error);
-    return { error: 'Không thể cập nhật sản phẩm.' };
-  }
+// ... (Các hàm khác đã có)
+// Chú ý: Đảm bảo bạn đã có các hàm của Product ở đây
+export interface Product {
+  id: string;
+  name: string;
+  unit: string;
+  stock: number;
+  price_level_1: number;
+  price_level_2: number;
 }
-
-// ... các hàm getProducts, deleteProduct đã có
 export async function getProducts(): Promise<Product[]> {
   try {
     const productsCol = collection(db, 'products');
@@ -96,17 +100,4 @@ export async function getProducts(): Promise<Product[]> {
     return [];
   }
 }
-
-export async function deleteProduct(productId: string) {
-  if (!productId) {
-    return { error: 'Product ID is required.' };
-  }
-  try {
-    await deleteDoc(doc(db, 'products', productId));
-    revalidatePath('/(dashboard)/products');
-    return { success: 'Product deleted successfully.' };
-  } catch (error) {
-    console.error("Error deleting product: ", error);
-    return { error: 'Failed to delete product.' };
-  }
-}
+// ...vân vân
