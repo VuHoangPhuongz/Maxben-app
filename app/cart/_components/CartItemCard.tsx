@@ -1,6 +1,7 @@
+// app/cart/_components/CartItemCard.tsx
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useTransition } from 'react';
 import { toast } from 'sonner';
 import { CartItem, updateCartItemQuantity, removeCartItem } from '@/lib/actions';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
 
   const handleRemoveItem = () => {
     startTransition(async () => {
-      const result = await removeCartItem(item.id);
+      const result = await removeCartItem(item.id); // Gọi action xóa ở đây
       if (result?.success) toast.success(result.success);
       if (result?.error) toast.error(result.error);
     });
@@ -48,8 +49,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
             type="number"
             className="h-8 w-14 text-center"
             value={item.quantity}
-            onChange={(e) => handleQuantityChange(Number(e.target.value))}
-            disabled={isPending}
+            readOnly
           />
           <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => handleQuantityChange(item.quantity + 1)} disabled={isPending}>
             <Plus className="h-4 w-4" />
@@ -58,6 +58,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
         <div className="font-semibold w-28 text-right">
           {(item.price * item.quantity).toLocaleString('vi-VN')}đ
         </div>
+        {/* NÚT XÓA NẰM Ở ĐÂY */}
         <Button variant="ghost" size="icon" onClick={handleRemoveItem} disabled={isPending}>
           <Trash2 className="h-5 w-5 text-red-500" />
         </Button>

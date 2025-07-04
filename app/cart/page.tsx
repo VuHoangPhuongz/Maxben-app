@@ -1,14 +1,13 @@
 // app/cart/page.tsx
-import { getCartItems, CartItem } from "@/lib/actions";
+import { getCartItems } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { CartItemCard } from "./_components/CartItemCard";
+import { CartItemCard } from "./_components/CartItemCard"; // Quan trọng: Import component này
 import { PlaceOrderButton } from "./_components/PlaceOrderButton";
 
 export default async function CartPage() {
   const cartItems = await getCartItems();
-
   const subtotal = cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   return (
@@ -17,6 +16,7 @@ export default async function CartPage() {
       {cartItems.length > 0 ? (
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2 space-y-4">
+            {/* Quan trọng: Đảm bảo bạn đang dùng CartItemCard ở đây */}
             {cartItems.map((item) => (
               <CartItemCard key={item.id} item={item} />
             ))}
